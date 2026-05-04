@@ -1,0 +1,11 @@
+{
+  "projectName": "pkg-neopixel-esp32",
+  "version": "1.0.0",
+  "vmVersion": "2.0.1",
+  "deviceName": "BLUESCRIPT",
+  "dependencies": {
+    "rmt": "https://github.com/bluescript-lang/pkg-rmt-esp32.git"
+  },
+  "boardName": "esp32",
+  "espIdfComponents": []
+}

@@ -1,0 +1,155 @@
+import { RmtTxChannel, RmtByteEncoder, RmtCopyEncoder, RmtEncoder, RmtSymbol, symbolsToUint8Array } from 'rmt';
+
+
+enum NeoPixelEncoderState {
+    SendingData = 0,
+    SendingResetCode = 1
+}
+
+const bit0Symbol = new RmtSymbol(1, 4, 0, 8);
+const bit1Symbol = new RmtSymbol(1, 8, 0, 4);
+const resetCode = symbolsToUint8Array([new RmtSymbol(0, 250, 0, 250)]);
+
+class NeoPixelEncoder extends RmtEncoder {
+    done: boolean;
+    byteEncoder: RmtByteEncoder;
+    copyEncoder: RmtCopyEncoder;
+    state: NeoPixelEncoderState;
+
+    constructor(channel: RmtTxChannel) {
+        super(channel);
+        this.done = false;
+        this.byteEncoder = new RmtByteEncoder(channel, bit0Symbol, bit1Symbol, true);
+        this.copyEncoder = new RmtCopyEncoder(channel);
+        this.state = NeoPixelEncoderState.SendingData;
+    }
+
+    encode(data: Uint8Array): integer {
+        this.done = false;
+        let encodedSymbols = 0;
+        if (this.state === NeoPixelEncoderState.SendingData) {
+            encodedSymbols += this.byteEncoder.encode(data);
+            if (this.byteEncoder.isDone()) {
+                this.state = NeoPixelEncoderState.SendingResetCode;
+            }
+        }
+        if (this.state === NeoPixelEncoderState.SendingResetCode) {
+            encodedSymbols += this.copyEncoder.encode(resetCode);
+            if (this.copyEncoder.isDone()) {
+                this.state = NeoPixelEncoderState.SendingData;
+                this.done = true;
+            }
+        }
+        return encodedSymbols;
+    }
+
+    isDone(): boolean {
+        return this.done;
+    }
+
+    reset(): void {
+        this.done = false;
+        this.state = NeoPixelEncoderState.SendingData;
+        this.byteEncoder.reset();
+        this.copyEncoder.reset();
+    }
+
+    deinit(): void {
+        this.byteEncoder.deinit();
+        this.copyEncoder.deinit();
+    }
+}
+
+
+export enum Colors {
+    Black   = 0x000000,
+    White   = 0xFFFFFF,
+    Red     = 0xFF0000,
+    Green   = 0x00FF00,
+    Blue    = 0x0000FF,
+    Yellow  = 0xFFFF00,
+    Cyan    = 0x00FFFF,
+    Magenta = 0xFF00FF,
+    Orange  = 0xFFA500,
+}
+
+export class NeoPixel {
+    pin: integer;
+    length: integer;
+    brightness: integer;
+
+    channel: RmtTxChannel;
+    encoder: NeoPixelEncoder;
+    colorBuffer: Uint8Array;
+    transmitBuffer: Uint8Array;
+
+    constructor(pin: integer, length: integer) {
+        this.pin = pin;
+        this.length = length;
+        this.brightness = 255;
+        
+        const bufferSize = length * 3;
+        this.colorBuffer = new Uint8Array(bufferSize, 0);
+        this.transmitBuffer = new Uint8Array(bufferSize, 0);
+
+        this.channel = new RmtTxChannel(pin, 10000000);
+
+        // Symbol for 0: High 0.4us(4Tick), Low 0.8us(8Tick)
+        const bit0 = new RmtSymbol(1, 4, 0, 8);
+        // Symbol for 0: High 0.8us(8Tick), Low 0.4us(4Tick)
+        const bit1 = new RmtSymbol(1, 8, 0, 4);
+
+        this.encoder = new NeoPixelEncoder(this.channel);
+    }
+
+    setPixelColor(index: integer, r: integer, g: integer, b: integer) {
+        if (index < 0 || index >= this.length) return;
+        const offset = index * 3;
+        this.colorBuffer[offset + 0] = g;
+        this.colorBuffer[offset + 1] = r;
+        this.colorBuffer[offset + 2] = b;
+    }
+
+    setPixelColorHex(index: integer, hexColor: integer) {
+        const r = (hexColor >> 16) & 0xFF;
+        const g = (hexColor >> 8) & 0xFF;
+        const b = hexColor & 0xFF;
+        this.setPixelColor(index, r, g, b);
+    }
+
+    fill(r: integer, g: integer, b: integer) {
+        for (let i = 0; i < this.length; i++) {
+            this.setPixelColor(i, r, g, b);
+        }
+    }
+
+    clear() {
+        this.fill(0, 0, 0);
+    }
+
+    setBrightness(brightness: integer) {
+        if (brightness < 0) brightness = 0;
+        if (brightness > 255) brightness = 255;
+        this.brightness = brightness;
+    }
+
+    show() {
+        const size = this.colorBuffer.length;
+        if (this.brightness === 255) {
+            for (let i = 0; i < size; i++) {
+                this.transmitBuffer[i] = this.colorBuffer[i];
+            }
+        } else {
+            for (let i = 0; i < size; i++) {
+                this.transmitBuffer[i] = (this.colorBuffer[i] * this.brightness) >> 8;
+            }
+        }
+
+        this.channel.transmit(this.encoder, this.transmitBuffer, 0, 50);
+    }
+
+    close() {
+        this.encoder.close();
+        this.channel.close();
+    }
+}
