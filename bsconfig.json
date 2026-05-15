@@ -1,5 +1,5 @@
 {
-  "projectName": "pkg-neopixel-esp32",
+  "projectName": "neopixel",
   "version": "1.0.0",
   "vmVersion": "2.0.1",
   "deviceName": "BLUESCRIPT",
